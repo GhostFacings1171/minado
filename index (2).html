@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Campo Minado</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        .cell {
+            transition: all 0.2s ease;
+        }
+        .cell:hover:not(.revealed) {
+            transform: scale(0.95);
+        }
+        .explosion {
+            animation: explode 0.5s ease-out;
+        }
+        @keyframes explode {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.5); }
+            100% { transform: scale(1); }
+        }
+        .flag-animation {
+            animation: flagWave 0.5s ease-in-out;
+        }
+        @keyframes flagWave {
+            0%, 100% { transform: rotate(0deg); }
+            25% { transform: rotate(-10deg); }
+            75% { transform: rotate(10deg); }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen flex flex-col items-center py-8">
+    <div class="container mx-auto px-4">
+        <h1 class="text-3xl md:text-4xl font-bold text-center mb-6 text-gray-800">Campo Minado</h1>
+        
+        <div class="bg-white rounded-lg shadow-xl p-6 mb-6">
+            <div class="flex flex-wrap justify-between items-center mb-6 gap-4">
+                <div class="flex items-center space-x-4">
+                    <button id="reset-btn" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg transition">
+                        <i class="fas fa-sync-alt mr-2"></i>Reiniciar
+                    </button>
+                    <button id="reveal-btn" class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg transition">
+                        <i class="fas fa-eye mr-2"></i>Revelar Resposta
+                    </button>
+                </div>
+                
+                <div class="flex items-center space-x-4">
+                    <button id="decrease-size" class="bg-gray-200 hover:bg-gray-300 text-gray-800 px-3 py-1 rounded-lg transition">
+                        <i class="fas fa-minus"></i>
+                    </button>
+                    <span id="size-display" class="font-medium">Tamanho: 10x10</span>
+                    <button id="increase-size" class="bg-gray-200 hover:bg-gray-300 text-gray-800 px-3 py-1 rounded-lg transition">
+                        <i class="fas fa-plus"></i>
+                    </button>
+                </div>
+            </div>
+            
+            <div class="flex justify-between items-center mb-4">
+                <div class="bg-blue-100 text-blue-800 px-4 py-2 rounded-lg">
+                    <i class="fas fa-flag mr-2"></i><span id="flags-count">0</span>/<span id="mines-count">20</span>
+                </div>
+                <div class="bg-gray-100 text-gray-800 px-4 py-2 rounded-lg">
+                    <i class="fas fa-clock mr-2"></i><span id="timer">00:00</span>
+                </div>
+                <div id="game-status" class="bg-yellow-100 text-yellow-800 px-4 py-2 rounded-lg">
+                    <i class="fas fa-play mr-2"></i>Jogando
+                </div>
+            </div>
+            
+            <div id="game-board" class="grid grid-cols-10 gap-1 mb-4 mx-auto"></div>
+            
+            <div id="cheat-used" class="hidden bg-red-100 text-red-800 px-4 py-2 rounded-lg text-center font-medium">
+                <i class="fas fa-exclamation-triangle mr-2"></i>Você usou a resposta!
+            </div>
+        </div>
+        
+        <div class="bg-white rounded-lg shadow-xl p-6">
+            <h2 class="text-xl font-semibold mb-3 text-gray-800">Como Jogar:</h2>
+            <ul class="list-disc pl-5 space-y-2 text-gray-700">
+                <li>Clique para revelar uma célula</li>
+                <li>Clique com o botão direito para colocar/remover uma bandeira</li>
+                <li>Números mostram quantas minas estão ao redor</li>
+                <li>O objetivo é revelar todas as células sem minas</li>
+                <li>Cuidado! Revelar uma mina faz você perder</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // Game variables
+            let boardSize = 10;
+            let mineCount = 20;
+            let board = [];
+            let revealed = [];
+            let flagged = [];
+            let gameOver = false;
+            let cheatUsed = false;
+            let firstClick = true;
+            let timer = 0;
+            let timerInterval = null;
+            
+            // DOM elements
+            const gameBoard = document.getElementById('game-board');
+            const resetBtn = document.getElementById('reset-btn');
+            const revealBtn = document.getElementById('reveal-btn');
+            const increaseSizeBtn = document.getElementById('increase-size');
+            const decreaseSizeBtn = document.getElementById('decrease-size');
+            const sizeDisplay = document.getElementById('size-display');
+            const flagsCount = document.getElementById('flags-count');
+            const minesCount = document.getElementById('mines-count');
+            const timerDisplay = document.getElementById('timer');
+            const gameStatus = document.getElementById('game-status');
+            const cheatUsedDisplay = document.getElementById('cheat-used');
+            
+            // Initialize game
+            initGame();
+            
+            // Event listeners
+            resetBtn.addEventListener('click', initGame);
+            revealBtn.addEventListener('click', revealAnswer);
+            increaseSizeBtn.addEventListener('click', () => changeSize(2));
+            decreaseSizeBtn.addEventListener('click', () => changeSize(-2));
+            
+            // Initialize the game
+            function initGame() {
+                // Reset game state
+                board = [];
+                revealed = [];
+                flagged = [];
+                gameOver = false;
+                cheatUsed = false;
+                firstClick = true;
+                timer = 0;
+                clearInterval(timerInterval);
+                updateTimer();
+                
+                // Reset UI
+                gameBoard.innerHTML = '';
+                gameBoard.className = `grid gap-1 mb-4 mx-auto`;
+                gameBoard.style.gridTemplateColumns = `repeat(${boardSize}, minmax(0, 1fr))`;
+                flagsCount.textContent = '0';
+                minesCount.textContent = mineCount.toString();
+                gameStatus.innerHTML = '<i class="fas fa-play mr-2"></i>Jogando';
+                gameStatus.className = 'bg-yellow-100 text-yellow-800 px-4 py-2 rounded-lg';
+                cheatUsedDisplay.classList.add('hidden');
+                
+                // Create empty board
+                for (let i = 0; i < boardSize; i++) {
+                    board[i] = [];
+                    revealed[i] = [];
+                    flagged[i] = [];
+                    for (let j = 0; j < boardSize; j++) {
+                        board[i][j] = 0;
+                        revealed[i][j] = false;
+                        flagged[i][j] = false;
+                        
+                        const cell = document.createElement('div');
+                        cell.className = 'cell bg-gray-200 w-8 h-8 md:w-10 md:h-10 flex items-center justify-center font-bold rounded cursor-pointer';
+                        cell.dataset.row = i;
+                        cell.dataset.col = j;
+                        
+                        cell.addEventListener('click', () => handleCellClick(i, j));
+                        cell.addEventListener('contextmenu', (e) => {
+                            e.preventDefault();
+                            toggleFlag(i, j);
+                        });
+                        
+                        gameBoard.appendChild(cell);
+                    }
+                }
+            }
+            
+            // Handle cell click
+            function handleCellClick(row, col) {
+                if (gameOver || flagged[row][col]) return;
+                
+                if (firstClick) {
+                    firstClick = false;
+                    placeMines(row, col);
+                    startTimer();
+                }
+                
+                if (board[row][col] === -1) {
+                    // Hit a mine
+                    revealAllMines();
+                    revealed[row][col] = true;
+                    updateCell(row, col);
+                    endGame(false);
+                    return;
+                }
+                
+                revealCell(row, col);
+                checkWin();
+            }
+            
+            // Place mines randomly (except around first click)
+            function placeMines(firstRow, firstCol) {
+                let placedMines = 0;
+                const safeZone = [];
+                
+                // Only create safe zone if it's a real first click (not from revealAnswer)
+                if (firstRow >= 0 && firstCol >= 0) {
+                    for (let i = Math.max(0, firstRow - 1); i <= Math.min(boardSize - 1, firstRow + 1); i++) {
+                        for (let j = Math.max(0, firstCol - 1); j <= Math.min(boardSize - 1, firstCol + 1); j++) {
+                            safeZone.push(`${i},${j}`);
+                        }
+                    }
+                }
+                
+                while (placedMines < mineCount) {
+                    const row = Math.floor(Math.random() * boardSize);
+                    const col = Math.floor(Math.random() * boardSize);
+                    
+                    if (board[row][col] !== -1 && !safeZone.includes(`${row},${col}`)) {
+                        board[row][col] = -1;
+                        placedMines++;
+                        
+                        // Update adjacent cells
+                        for (let i = Math.max(0, row - 1); i <= Math.min(boardSize - 1, row + 1); i++) {
+                            for (let j = Math.max(0, col - 1); j <= Math.min(boardSize - 1, col + 1); j++) {
+                                if (board[i][j] !== -1) {
+                                    board[i][j]++;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Reveal a cell (recursive for empty cells)
+            function revealCell(row, col) {
+                if (row < 0 || row >= boardSize || col < 0 || col >= boardSize || revealed[row][col] || flagged[row][col]) {
+                    return;
+                }
+                
+                revealed[row][col] = true;
+                updateCell(row, col);
+                
+                if (board[row][col] === 0) {
+                    // Reveal adjacent cells if current cell is empty
+                    for (let i = Math.max(0, row - 1); i <= Math.min(boardSize - 1, row + 1); i++) {
+                        for (let j = Math.max(0, col - 1); j <= Math.min(boardSize - 1, col + 1); j++) {
+                            if (i !== row || j !== col) {
+                                revealCell(i, j);
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Toggle flag on a cell
+            function toggleFlag(row, col) {
+                if (gameOver || revealed[row][col]) return;
+                
+                flagged[row][col] = !flagged[row][col];
+                const cell = getCellElement(row, col);
+                
+                if (flagged[row][col]) {
+                    cell.innerHTML = '<i class="fas fa-flag text-red-500"></i>';
+                    cell.classList.add('flag-animation');
+                    setTimeout(() => cell.classList.remove('flag-animation'), 500);
+                    updateFlagsCount(1);
+                } else {
+                    cell.innerHTML = '';
+                    updateFlagsCount(-1);
+                }
+            }
+            
+            // Update a cell's appearance
+            function updateCell(row, col) {
+                const cell = getCellElement(row, col);
+                
+                if (revealed[row][col]) {
+                    cell.classList.remove('bg-gray-200');
+                    cell.classList.add('bg-gray-100', 'revealed');
+                    
+                    if (board[row][col] === -1) {
+                        cell.innerHTML = '<i class="fas fa-bomb text-gray-800"></i>';
+                        cell.classList.add('explosion');
+                        setTimeout(() => cell.classList.remove('explosion'), 500);
+                    } else if (board[row][col] > 0) {
+                        let colorClass;
+                        switch (board[row][col]) {
+                            case 1: colorClass = 'text-blue-600'; break;
+                            case 2: colorClass = 'text-green-600'; break;
+                            case 3: colorClass = 'text-red-600'; break;
+                            case 4: colorClass = 'text-purple-600'; break;
+                            default: colorClass = 'text-yellow-600'; break;
+                        }
+                        cell.innerHTML = `<span class="${colorClass}">${board[row][col]}</span>`;
+                    } else {
+                        cell.innerHTML = '';
+                    }
+                }
+            }
+            
+            // Get cell element by coordinates
+            function getCellElement(row, col) {
+                return document.querySelector(`.cell[data-row="${row}"][data-col="${col}"]`);
+            }
+            
+            // Update flags counter
+            function updateFlagsCount(change) {
+                const current = parseInt(flagsCount.textContent);
+                flagsCount.textContent = (current + change).toString();
+            }
+            
+            // Start game timer
+            function startTimer() {
+                timerInterval = setInterval(() => {
+                    timer++;
+                    updateTimer();
+                }, 1000);
+            }
+            
+            // Update timer display
+            function updateTimer() {
+                const minutes = Math.floor(timer / 60).toString().padStart(2, '0');
+                const seconds = (timer % 60).toString().padStart(2, '0');
+                timerDisplay.textContent = `${minutes}:${seconds}`;
+            }
+            
+            // Check if player has won
+            function checkWin() {
+                let unrevealedSafeCells = 0;
+                
+                for (let i = 0; i < boardSize; i++) {
+                    for (let j = 0; j < boardSize; j++) {
+                        if (board[i][j] !== -1 && !revealed[i][j]) {
+                            unrevealedSafeCells++;
+                        }
+                    }
+                }
+                
+                if (unrevealedSafeCells === 0) {
+                    endGame(true);
+                }
+            }
+            
+            // End the game (win or lose)
+            function endGame(won) {
+                gameOver = true;
+                clearInterval(timerInterval);
+                
+                if (won) {
+                    gameStatus.innerHTML = '<i class="fas fa-trophy mr-2"></i>Você venceu!';
+                    gameStatus.className = 'bg-green-100 text-green-800 px-4 py-2 rounded-lg';
+                    
+                    // Flag all mines
+                    for (let i = 0; i < boardSize; i++) {
+                        for (let j = 0; j < boardSize; j++) {
+                            if (board[i][j] === -1 && !flagged[i][j]) {
+                                flagged[i][j] = true;
+                                const cell = getCellElement(i, j);
+                                cell.innerHTML = '<i class="fas fa-flag text-green-500"></i>';
+                            }
+                        }
+                    }
+                } else {
+                    gameStatus.innerHTML = '<i class="fas fa-skull mr-2"></i>Você perdeu!';
+                    gameStatus.className = 'bg-red-100 text-red-800 px-4 py-2 rounded-lg';
+                }
+            }
+            
+            // Reveal all mines (cheat)
+            function revealAnswer() {
+                if (gameOver || cheatUsed) return;
+
+                // If first click hasn't happened yet, generate mines first
+                if (firstClick) {
+                    placeMines(-1, -1); // Special coordinates to place mines randomly without safe zone
+                    firstClick = false;
+                    startTimer();
+                }
+                
+                cheatUsed = true;
+                cheatUsedDisplay.classList.remove('hidden');
+                revealBtn.classList.remove('bg-green-500', 'hover:bg-green-600');
+                revealBtn.classList.add('bg-gray-500', 'hover:bg-gray-600');
+                
+                for (let i = 0; i < boardSize; i++) {
+                    for (let j = 0; j < boardSize; j++) {
+                        if (board[i][j] === -1 && !revealed[i][j] && !flagged[i][j]) {
+                            flagged[i][j] = true;
+                            const cell = getCellElement(i, j);
+                            cell.innerHTML = '<i class="fas fa-bomb text-gray-400"></i>';
+                        }
+                    }
+                }
+            }
+            
+            // Reveal all mines (on loss)
+            function revealAllMines() {
+                for (let i = 0; i < boardSize; i++) {
+                    for (let j = 0; j < boardSize; j++) {
+                        if (board[i][j] === -1 && !flagged[i][j]) {
+                            revealed[i][j] = true;
+                            updateCell(i, j);
+                        }
+                    }
+                }
+            }
+            
+            // Change board size
+            function changeSize(change) {
+                const newSize = boardSize + change;
+                
+                if (newSize >= 6 && newSize <= 16) {
+                    boardSize = newSize;
+                    mineCount = Math.floor(boardSize * boardSize * 0.2); // 20% of cells are mines
+                    
+                    // Update size display
+                    sizeDisplay.textContent = `Tamanho: ${boardSize}x${boardSize}`;
+                    
+                    // Reinitialize game with new size
+                    initGame();
+                }
+                
+                // Disable/enable size buttons at limits
+                if (boardSize <= 6) {
+                    decreaseSizeBtn.disabled = true;
+                    decreaseSizeBtn.classList.add('opacity-50', 'cursor-not-allowed');
+                } else if (boardSize >= 16) {
+                    increaseSizeBtn.disabled = true;
+                    increaseSizeBtn.classList.add('opacity-50', 'cursor-not-allowed');
+                } else {
+                    decreaseSizeBtn.disabled = false;
+                    decreaseSizeBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                    increaseSizeBtn.disabled = false;
+                    increaseSizeBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                }
+            }
+        });
+    </script>
+<p style="border-radius: 8px; text-align: center; font-size: 12px; color: #fff; margin-top: 16px;position: fixed; left: 8px; bottom: 8px; z-index: 10; background: rgba(0, 0, 0, 0.8); padding: 4px 8px;">Made with <img src="https://enzostvs-deepsite.hf.space/logo.svg" alt="DeepSite Logo" style="width: 16px; height: 16px; vertical-align: middle;display:inline-block;margin-right:3px;filter:brightness(0) invert(1);"><a href="https://enzostvs-deepsite.hf.space" style="color: #fff;text-decoration: underline;" target="_blank" >DeepSite</a> - 🧬 <a href="https://enzostvs-deepsite.hf.space?remix=Aki5184/campo-minado" style="color: #fff;text-decoration: underline;" target="_blank" >Remix</a></p></body>
+</html>
